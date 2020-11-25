@@ -1,3 +1,7 @@
+import json
+import requests
+import operator
+
 class Pick:
     def __init__(self, game, type, winner):
         self.game = game
@@ -80,7 +84,7 @@ class BetterOddsPicksGenerator(SimpleComparisonPicksGenerator):
 
     def pick(self, game):
         try:
-            return game.home if int(game.odds['moneyline'][game.home.name]['american']) < 0 else game.away
+            return game.home if int(getOdds(game)['moneyline'][game.home.name]['american']) < 0 else game.away
         except:
             print('WARNING: No moneyline odds for game:', game.name)
             return game.home
@@ -179,8 +183,8 @@ class Parlay:
         self.finished = list(map(lambda pick: pick.game.finished, picks)).count(False) == 0
         self.odds = {'decimal': 1}
         for pick in self.picks:
-            if 'moneyline' in pick.game.odds and pick.game.odds['moneyline'][pick.winner.name]['decimal'] != 0.0:
-                self.odds['decimal'] = self.odds['decimal'] * pick.game.odds['moneyline'][pick.winner.name]['decimal']
+            if getOdds(pick.game) != None and 'moneyline' in getOdds(pick.game) and getOdds(pick.game)['moneyline'][pick.winner.name]['decimal'] != 0.0:
+                self.odds['decimal'] = self.odds['decimal'] * getOdds(pick.game)['moneyline'][pick.winner.name]['decimal']
 
         if self.odds['decimal'] > 0:
             self.odds['american'] = int((self.odds['decimal'] - 1) * 100)
@@ -209,10 +213,32 @@ def _swap_winner(pick):
     pick.winner = pick.game.away if pick.winner.name == pick.game.home.name else pick.game.home
     return pick
 
-if len(sys.argv) >= 2:
-    week = sys.argv[1]
-else:
-    week = '8'
+url = 'https://sportsbook.draftkings.com/api/odds/v1/leagues/3/offers/gamelines.json'
+data = json.loads(requests.get(url).content)
+
+_odds_by_game = {}
+for event in data['events']:
+    _odds_by_game[event['name']] = {}
+    for offer in event['offers']:
+        if offer['label'] == "Point Spread" and 'main' in offer:
+            _odds_by_game[event['name']]['spread'] = {}
+            for i in [0, 1]:
+                _odds_by_game[event['name']]['spread'][offer['outcomes'][i]['label'].split(' ', 1)[1]] = offer['outcomes'][i]['line']
+        elif offer['label'] == "Moneyline":
+            _odds_by_game[event['name']]['moneyline'] = {}
+            for i in [0, 1]:
+                _odds_by_game[event['name']]['moneyline'][offer['outcomes'][i]['label'].split(' ', 1)[1]] = {'american': offer['outcomes'][i]['oddsAmerican'], 'decimal': offer['outcomes'][i]['oddsDecimal'], 'fractional': offer['outcomes'][i]['oddsFractional']}
 
 pickers = [BetterWinPercentagePicksGenerator, BetterSimpleRatingPicksGenerator, BetterPowerRatingPicksGenerator, BetterStrengthOfSchedulePicksGenerator, BetterPointsDifferencePicksGenerator, BetterOddsPicksGenerator, UpsetPicksGenerator]
 parlayers = [AllPicksParlayGenerator, OnlyHomeTeamParlayGenerator, OnlyAwayTeamParlayGenerator, OnlyInterdivisonalGamesParlayGenerator, OnlySundayGamesParlayGenerator, OnlyLargerThan14PointSpreads, OnlyLargerThan10PointSpreads, OnlyLargerThan7PointSpreads, OnlyLargerThan5PointSpreads, OnlyLargerThan3PointSpreads]
+
+def getOdds(game):
+    return _odds_by_game.get(str(game), None)
+
+def parlays(games):
+    parlays = []
+    for picks in list(map(lambda picker: picker().picks(games), pickers)):
+        for parlayer in parlayers:
+            parlays = parlays + parlayer().parlays(picks)
+
+    return parlays
