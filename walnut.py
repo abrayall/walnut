@@ -1,7 +1,7 @@
 import nfl
 import betting
 
-print("Parlays:")
+print("Parlays")
 print('------------------------------------')
 total = 0
 for parlay in betting.parlays(nfl.getGames()):
