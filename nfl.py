@@ -35,8 +35,8 @@ _teams_by_id = {
     'cin': {'name': 'Bengals', 'location': 'Cincinnati', 'conference': 'afc', 'division': 'afc-north'},
     'oti': {'name': 'Titans', 'location': 'Tennessee', 'conference': 'afc', 'division': 'afc-south'},
     'clt': {'name': 'Colts', 'location': 'Indianapolis', 'conference': 'afc', 'division': 'afc-south'},
-    'jax': {'name': 'Texans', 'location': 'Houston', 'conference': 'afc', 'division': 'afc-south'},
-    'htx': {'name': 'Jaguars', 'location': 'Jacksonville', 'conference': 'afc', 'division': 'afc-south'},
+    'htx': {'name': 'Texans', 'location': 'Houston', 'conference': 'afc', 'division': 'afc-south'},
+    'jax': {'name': 'Jaguars', 'location': 'Jacksonville', 'conference': 'afc', 'division': 'afc-south'},
     'kan': {'name': 'Chiefs', 'location': 'Kansas City', 'conference': 'afc', 'division': 'afc-west'},
     'rai': {'name': 'Raiders', 'location': 'Las Vegas', 'conference': 'afc', 'division': 'afc-west'},
     'den': {'name': 'Broncos', 'location': 'Denver', 'conference': 'afc', 'division': 'afc-west'},
@@ -78,6 +78,24 @@ sportsreference.nfl.teams.Team.power = property(lambda self: int((self.win_perce
 sportsreference.nfl.teams.Team.expected_win_ratio = property(lambda self: 1 / (1 + ((self.points_against / self.points_for) ** 2)))
 sportsreference.nfl.teams.Team.__str__ = lambda self: self.fullname
 
+sportsreference.nfl.boxscore.Boxscore.home = property(lambda self: _teams(self.home_abbreviation.lower()))
+sportsreference.nfl.boxscore.Boxscore.away = property(lambda self: _teams(self.away_abbreviation.lower()))
+sportsreference.nfl.boxscore.Boxscore.winner = property(lambda self: self.home if self.home_points >= self.away_points else self.away)
+
+class Game:
+    def __init__(self, season, week, date, time, day, home, away):
+        self.away = away if isinstance(away, str) == False else getTeam(away)
+        self.home = home if isinstance(home, str) == False else getTeam(home)
+        self.name = self.away.fullname + ' @ ' + self.home.fullname
+        self.season = season
+        self.week = week
+        self.date = datetime.datetime.strptime(date + ' ' + (str(int(season) + 1) if 'January' in date or 'Feburary' in date else season) + ' ' + time, '%B %d %Y %I:%M%p')
+        self.day = day
+        self.finished = True if self.date < datetime.datetime.now() else False
+
+    def __str__(self):
+        return self.away.fullname + ' @ ' + self.home.fullname
+
 def getTeam(team=""):
     return _teams(_teams_by_id.get(team, _teams_by_name.get(team, _teams_by_fullname.get(team, None)))['id'])
 
@@ -116,35 +134,13 @@ def getDivision(id, conference=None):
 
     return None
 
-
-class Game:
-    def __init__(self, season, week, date, time, day, home, away):
-        self.away = getTeam(away)
-        self.home = getTeam(home)
-        self.name = self.away.fullname + ' @ ' + self.home.fullname
-        self.date = datetime.datetime.strptime(date + ' ' + (str(int(season) + 1) if 'January' in date or 'Feburary' in date else season) + ' ' + time, '%B %d %Y %I:%M%p')
-        self.day = day
-
-        self.boxscore = None
-        self.winner = None
-        self.finished = False
-
-        if self.date < datetime.datetime.now():
-            self.boxscore = sportsreference.nfl.boxscore.Boxscore(self.date.strftime('%Y%m%d0') + self.home.id.lower())
-            if self.boxscore.home_abbreviation == 'None':
-                self.boxscore = sportsreference.nfl.boxscore.Boxscore(self.date.strftime('%Y%m%d0') + self.away.id.lower())
-
-            try:
-                self.winner = self.home if self.boxscore.winner == 'Home' else self.away
-                self.finished = True
-            except:
-                pass
-
-    def __str__(self):
-        return self.away.fullname + ' @ ' + self.home.fullname
-
-def getSeason():
-    return str(getSeasons()[0])
+def getSeason(date=None):
+    if date == None:
+        return str(getSeasons()[0])
+    elif date.month > 4:
+        return str(date.year)
+    else:
+        return str(date.year - 1)
 
 def getSeasons():
     return list(pandas.read_html('https://www.pro-football-reference.com/years/')[0].iloc[:, 0])
@@ -158,7 +154,7 @@ def getGames(season=None, week=None):
 
     if week == None:
         week = getWeek()
-        
+
     schedule = pandas.read_html('https://www.pro-football-reference.com/years/' + str(season) + '/games.htm')[0]
     schedule['season'] = str(season)
     schedule['week'] = schedule.iloc[:, 0]
@@ -167,4 +163,13 @@ def getGames(season=None, week=None):
     schedule['time'] = schedule.iloc[:, 3]
     schedule['away'] = numpy.where(schedule.iloc[:, 7].eq('preview') | (schedule.iloc[:, 7].eq('boxscore') & schedule.iloc[:, 5].eq('@')), schedule.iloc[:, 4], schedule.iloc[:, 6])
     schedule['home'] = numpy.where(schedule.iloc[:, 7].eq('preview') | (schedule.iloc[:, 7].eq('boxscore') & schedule.iloc[:, 5].eq('@')), schedule.iloc[:, 6], schedule.iloc[:, 4])
+
     return [Game(**kwargs) for kwargs in schedule[schedule.Week == str(week)].loc[:,['season', 'week', 'date', 'time', 'day', 'away', 'home']].to_dict(orient='records')]
+
+
+def getBoxscore(game):
+    boxscore = sportsreference.nfl.boxscore.Boxscore(game.date.strftime('%Y%m%d0') + game.home.id.lower())
+    if boxscore.home_abbreviation == 'None':
+        boxscore = sportsreference.nfl.boxscore.Boxscore(game.date.strftime('%Y%m%d0') + game.away.id.lower())
+
+    return boxscore

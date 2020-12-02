@@ -3,16 +3,7 @@ import betting
 
 import sys
 import pandas
-
-#print(pandas.read_html('https://www.teamrankings.com/nfl/')[0])
-#print(pandas.read_html('https://www.teamrankings.com/nfl/ranking/predictive-by-other/')[0])
-
-#tables = pandas.read_html('https://www.teamrankings.com/nfl/matchup/jaguars-packers-week-10-2020/stats')
-#print(tables[0][tables[0].iloc[:, 0] == 'Points/Game'].iloc[0, 1].replace('(', '').replace(')', '').replace('#', '').split(' '))
-
-#print(pandas.read_html('https://sports.yahoo.com/nfl/standings/'))
-#print(pandas.read_html('https://sports.yahoo.com/nfl/standings/?selectedTab=2'))
-
+import datetime
 
 _teams = {
     'Packers' : 'Green Bay',
@@ -51,11 +42,17 @@ _teams = {
 
 class Predictor:
 
-    def __init__(self, seconds_per_play = 30):
+    def __init__(self, seconds_per_play = 24):
         self.seconds_per_play = seconds_per_play
 
     def _dataframe(self, url):
         return pandas.read_html(url)[0]
+
+    def _normalize(self, data, column, alternative):
+        if column in data:
+            return data
+
+        return data.rename(columns={alternative: column})
 
     def _percent(self, data, column):
         data['percent'] = data.iloc[:, column].str.replace('%', '').astype(float)
@@ -70,10 +67,14 @@ class Predictor:
         return data
 
     def predict(self, games):
-        offense = self._adjusted(self._mean(self._dataframe('https://www.teamrankings.com/nfl/stat/points-per-play'), 2), 2)
-        defense = self._adjusted(self._mean(self._dataframe('https://www.teamrankings.com/nfl/stat/opponent-points-per-play'), 2), 2)
+        date = (games[0].date - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        week = games[0].week
+        season = nfl.getSeason(date=games[0].date)
 
-        posession = self._percent(self._dataframe('https://www.teamrankings.com/nfl/stat/time-of-possession-pct-net-of-ot'), 2)
+        offense = self._adjusted(self._mean(self._normalize(self._dataframe('https://www.teamrankings.com/nfl/stat/points-per-play?date=' + date), season, 'Last 3'), 2), 2)
+        defense = self._adjusted(self._mean(self._normalize(self._dataframe('https://www.teamrankings.com/nfl/stat/opponent-points-per-play?date=' + date), season, 'Last 3'), 2), 2)
+
+        posession = self._percent(self._normalize(self._dataframe('https://www.teamrankings.com/nfl/stat/time-of-possession-pct-net-of-ot?date=' + date), season, 'Last 3'), 2)
         posession['opponent'] = 100 - posession.iloc[:, 8]
         posession = self._adjusted(self._mean(posession, 9), 9)
 
@@ -88,16 +89,23 @@ class Predictor:
             home_defense = defense[defense.Team == _teams.get(game.home.name)].iloc[0]
             away_defense = defense[defense.Team == _teams.get(game.away.name)].iloc[0]
 
-            away_points_per_play = away_offense['2020'] + home_defense['adjusted']
-            home_points_per_play = home_offense['2020'] + away_defense['adjusted']
-            #print(game.away, 'points per play', away_offense['2020'], '=>', away_points_per_play)
-            #print(game.home, 'points per play', home_offense['2020'], '=>', home_points_per_play)
+            away_points_per_play = away_offense[season] + home_defense['adjusted']
+            home_points_per_play = home_offense[season] + away_defense['adjusted']
 
             away_play_count = (((away_possesion['percent'] + home_possesion['adjusted']) / 100) * 3600) / self.seconds_per_play
             home_play_count = (((home_possesion['percent'] + away_possesion['adjusted']) / 100) * 3600) / self.seconds_per_play
 
             away_score = int(round(away_play_count * away_points_per_play, 0))
             home_score = int(round(home_play_count * home_points_per_play, 0))
+
+            if away_score < 0:
+                away_score = 0
+
+            if home_score < 0:
+                home_score = 0
+
+            if home_score == away_score:
+                home_score = home_score + 1
 
             odds = betting.getOdds(game)
             if odds == None:
@@ -113,10 +121,16 @@ class Prediction:
         self.home_score = home_score
         self.away_score = away_score
         self.odds = odds
+        self.winner = self.game.home if self.home_score >= self.away_score else self.game.away
 
     def __str__(self):
-        string = self.game.away.name.ljust(14) + ' ' + str(self.away_score)  + ' ' +  (('[-' + str(abs(self.away_score - self.home_score)) + ' / ' + str(round(float(self.odds['spread'][self.game.away.name]), 1)) + ']') if self.away_score > self.home_score else '') + '\n'
-        return string + self.game.home.name.ljust(14)  + ' ' +  str(self.home_score) + ' ' +  (('[-' + str(abs(self.home_score - self.away_score)) + ' / ' + str(round(float(self.odds['spread'][self.game.home.name]), 1)) + ']') if self.home_score > self.away_score else '')
+        if self.game.finished == False:
+            string = self.game.away.name.ljust(14) + ' ' + str(self.away_score)  + ' ' +  (('[-' + str(abs(self.away_score - self.home_score)) + ' / ' + str(round(float(self.odds['spread'][self.game.away.name]), 1)) + ']') if self.away_score > self.home_score else '') + '\n'
+            return string + self.game.home.name.ljust(14)  + ' ' +  str(self.home_score) + ' ' +  (('[-' + str(abs(self.home_score - self.away_score)) + ' / ' + str(round(float(self.odds['spread'][self.game.home.name]), 1)) + ']') if self.home_score > self.away_score else '')
+        else:
+            boxscore = nfl.getBoxscore(self.game)
+            string = self.game.away.name.ljust(14) + ' ' + str(self.away_score)  + ' vs ' +  str(boxscore.away_points) + ' [' + str(abs(self.away_score - boxscore.away_points)) + ']\n'
+            return string + self.game.home.name.ljust(14)  + ' ' +  str(self.home_score) + ' vs ' +  str(boxscore.home_points) + ' [' + str(abs(self.home_score - boxscore.home_points)) + '] ' + ('CORRECT' if self.winner.name == boxscore.winner.name else '')
 
 week = nfl.getWeek() if len(sys.argv) != 2 else sys.argv[1]
 
