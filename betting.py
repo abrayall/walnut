@@ -228,6 +228,10 @@ for event in data['events']:
             _odds_by_game[event['name']]['moneyline'] = {}
             for i in [0, 1]:
                 _odds_by_game[event['name']]['moneyline'][offer['outcomes'][i]['label'].split(' ', 1)[1]] = {'american': offer['outcomes'][i]['oddsAmerican'], 'decimal': offer['outcomes'][i]['oddsDecimal'], 'fractional': offer['outcomes'][i]['oddsFractional']}
+        elif offer['label'] == "Total Points":
+            _odds_by_game[event['name']]['points'] = {}
+            for i in [0, 1]:
+                _odds_by_game[event['name']]['points'][offer['outcomes'][i]['label'].lower()] = {'value': offer['outcomes'][i]['line'], 'american': offer['outcomes'][i]['oddsAmerican'], 'decimal': offer['outcomes'][i]['oddsDecimal'], 'fractional': offer['outcomes'][i]['oddsFractional']}
 
 pickers = [BetterWinPercentagePicksGenerator, BetterSimpleRatingPicksGenerator, BetterPowerRatingPicksGenerator, BetterStrengthOfSchedulePicksGenerator, BetterPointsDifferencePicksGenerator, BetterOddsPicksGenerator, UpsetPicksGenerator]
 parlayers = [AllPicksParlayGenerator, OnlyHomeTeamParlayGenerator, OnlyAwayTeamParlayGenerator, OnlyInterdivisonalGamesParlayGenerator, OnlySundayGamesParlayGenerator, OnlyLargerThan14PointSpreads, OnlyLargerThan10PointSpreads, OnlyLargerThan7PointSpreads, OnlyLargerThan5PointSpreads, OnlyLargerThan3PointSpreads]

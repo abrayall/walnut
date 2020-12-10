@@ -80,7 +80,7 @@ sportsreference.nfl.teams.Team.__str__ = lambda self: self.fullname
 
 sportsreference.nfl.boxscore.Boxscore.home = property(lambda self: _teams(self.home_abbreviation.lower()))
 sportsreference.nfl.boxscore.Boxscore.away = property(lambda self: _teams(self.away_abbreviation.lower()))
-sportsreference.nfl.boxscore.Boxscore.winner = property(lambda self: self.home if self.home_points >= self.away_points else self.away)
+sportsreference.nfl.boxscore.Boxscore.winner = property(lambda self: None if self.home_points == None or self.away_points == None else self.home if self.home_points >= self.away_points else self.away)
 
 class Game:
     def __init__(self, season, week, date, time, day, home, away):
@@ -108,7 +108,7 @@ def getTeams(conference=None, division=None):
 
     return list(filter(lambda team: ((conference == None or team.conference == conference['id']) and (division == None or team.division == division['id'])), _teams))
 
-def getConferences(self):
+def getConferences():
     return _conferences
 
 def getConference(id):
